@@ -1,0 +1,251 @@
+---
+title: "Analysis for RGC Dendrite Project (Integration of RFs)"
+author: "Philipp Berens"
+date: "July 31, 2019"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library('ggplot2')
+library("plyr")
+library("mgcv")
+library("hrbrthemes")
+library("ggthemes")
+library("itsadug")
+
+```
+
+##Load data
+
+```{r}
+data <- read.csv("../../data/processed/all_roi.csv", header=T)
+
+data <- plyr::rename(data, c("dendritic_distance_to_soma"="soma_dist", "sRF_asd_upsampled_cntr_size_65"="rf_size"))
+
+data <- plyr::rename(data, c("cntrs_offset_calibrate_to_rois_65"="offset", "cntr_quality"="quality"))
+
+data <- dplyr::select(data, c("exp_date", "recording_id", "roi_id", "type", "soma_dist", "rf_size", "quality", "offset"))
+
+data$type <- factor(data$type)
+data$type <- revalue(data$type, c("0"="alpha transient", "1"="sustained", "2" = "mini alpha", "3"="f-mini"))
+
+data <- dplyr::filter(data, (data$soma_dist<200)) # & (data$soma_dist>5))
+
+data <- dplyr::filter(data, data$quality==1)
+
+# we use cell id as a random factor
+data$exp_date = factor(data$exp_date)
+
+
+```
+
+
+##Receptive field sizes
+
+###All cell types individually
+```{r size_dist, fig.width=8, fig.height=4, echo=FALSE, fig.path='figures/', dev=c('png', 'pdf')}
+ggplot(data, aes(x=soma_dist,y=rf_size)) +
+  geom_point(alpha=.5, shape=16, size=.3) + 
+  #geom_smooth(method = "gam", formula = y  ~  s(x), se=FALSE) + 
+  facet_wrap(~type, ncol=4) + 
+  ylim(c(0,25)) + 
+  theme_minimal() +
+  xlab(expression(paste("Distance from soma [", mu, "m] "))) + 
+  ylab('Receptive field size [units]')
+
+```
+
+###Statistical analysis 
+
+We first fit again a model without random effects for cell_id:
+```{r}
+
+m1 <- gam(rf_size ~ type + s(soma_dist, by=type, k=50), data = data)
+summary(m1)
+
+```
+
+Then a model with random effects for cell_id:
+
+```{r}
+m2 <- gam(rf_size ~ type + s(soma_dist, by=type, k=50) + s(exp_date, bs="re"), data = data)
+summary(m2)
+
+```
+
+Model comparison using AIC:
+
+```{r}
+AIC(m1)
+AIC(m2)
+```
+
+Model comparison between the two models using ANOVA:
+
+```{r}
+anova(m1,m2, test="F")
+```
+
+
+```{r fig.width=4, fig.height=4}
+qq.gam(m2)
+```
+
+This qq-plot is not perfect, but none of the common families yield better results. We stay with the random effects model for statistics. 
+
+```{r}
+gam.check(m2)
+```
+
+
+
+### Visualization 
+
+```{r size_dist_gam, fig.width=4, fig.height=6, echo=FALSE, fig.path='figures/', dev=c('png', 'pdf') }
+
+plot_smooth(m2, view="soma_dist", plot_all = "type", xlim = c(0,150),ylim=c(0,30),rm.ranef=TRUE,
+              print.summary = FALSE, rug=FALSE, xlab = expression(paste("Distance from soma [", mu, "m] ")), 
+              ylab = 'Receptive field size [units]', col=c('#F8766D','#7CAE00','#00BFC4','#C77CFF'))
+
+```
+
+```{r size_distance_diffs, fig.width=8, fig.height=11.5, echo=FALSE, fig.path='figures/', dev=c('png', 'pdf')}
+
+par(mfrow=c(3,2), cex=1.1)
+
+types <- c("alpha transient", "mini alpha", "sustained", "f-mini")
+nT <- seq(1, length(types))
+
+
+for (t in nT){
+  if (t<length(types)){
+    for (d in seq(t+1, length(types))){
+      plot_diff(m2, view=c("soma_dist"), sim.ci = TRUE,
+          comp=list(type=c(types[t], types[d])), 
+          rm.ranef=TRUE, print.summary = FALSE, hide.label = FALSE,
+          xlab = expression(paste("Distance from soma [", mu, "m] ")),
+          ylab = "RF size [units]",
+          main = paste(types[t],"vs",types[d]), xlim=c(0,200), ylim=c(-10,20))
+    }
+  }
+}
+```
+
+
+### Summary
+
+According to the fitted model, receptive field size changes significantly in alpha transient RGCs, the mini-alpha and the sustained RGC. For the f-mini, there is no systematic change of the receptive field size with the distance from the soma. In addition, the difference between the alpha transient RGCs and all other types is statistically significant, because alpha transient RGCs have larger receptive fields closer to the center.
+
+##Receptive field offset
+
+###All cell types individually
+```{r offset_dist, fig.width=8, fig.height=4,, echo=FALSE, fig.path='figures/', dev=c('png', 'pdf')}
+ggplot(data, aes(x=soma_dist,y=offset)) +
+  geom_point(alpha=.5, shape=16, size=.3) + 
+  #geom_smooth(method = "gam", formula = y  ~  s(x), se=FALSE) + 
+  facet_wrap(~type, ncol=4) + 
+  ylim(c(0,150)) + 
+  theme_minimal() +
+  xlab(expression(paste("Distance from soma [", mu, "m] "))) + 
+  ylab('Offset [units]')
+
+```
+
+We don't show CIs on these plots, as they are too small because the fit here does not take the random effects into account (see below).
+
+###Statistical analysis 
+
+We first fit again a model without random effects for cell_id:
+```{r}
+
+n1 <- gam(offset ~ type + s(soma_dist, by=type, k=50), data = data)
+summary(n1)
+
+```
+
+Then a model with random effects for cell_id:
+
+```{r}
+n2 <- gam(offset ~ type + s(soma_dist, by=type, k=50) + s(exp_date, bs="re"), data = data)
+summary(n2)
+
+```
+
+Model comparison using AIC:
+
+```{r}
+AIC(n1)
+AIC(n2)
+```
+
+Model comparison between the two models using ANOVA:
+
+```{r}
+anova(n1,n2, test="F")
+```
+
+
+```{r fig.width=4, fig.height=4}
+qq.gam(n2)
+```
+
+This qq-plot is not perfect, but none of the common families yield better results. We stay with the random effects model for statistics. 
+
+```{r}
+gam.check(n2)
+```
+
+
+### Visualization 
+
+```{r offset_dist_gam, fig.width=4, fig.height=6, echo=FALSE, fig.path='figures/', dev=c('png', 'pdf') }
+
+plot_smooth(n2, view="soma_dist", plot_all = "type", xlim = c(0,200),ylim=c(0,150),rm.ranef=TRUE,
+              print.summary = FALSE, rug=FALSE, xlab = expression(paste("Distance from soma [", mu, "m] ")), 
+              ylab = 'Receptive field offset [units]', col=c('#F8766D','#7CAE00','#00BFC4','#C77CFF'))
+
+```
+
+```{r offset_dist_diffs, fig.width=8, fig.height=11.5, echo=FALSE, fig.path='figures/', dev=c('png', 'pdf')}
+
+par(mfrow=c(3,2), cex=1.1)
+
+types <- c("alpha transient", "mini alpha", "sustained", "f-mini")
+nT <- seq(1, length(types))
+
+
+for (t in nT){
+  if (t<length(types)){
+    for (d in seq(t+1, length(types))){
+      plot_diff(n2, view=c("soma_dist"), sim.ci = TRUE,
+          comp=list(type=c(types[t], types[d])), 
+          rm.ranef=TRUE, print.summary = FALSE, hide.label = FALSE,
+          xlab = expression(paste("Distance from soma [", mu, "m] ")),
+          ylab = "Offset [units]",
+          main = paste(types[t],"vs",types[d]), xlim=c(0,200), ylim=c(-100,100))
+    }
+  }
+}
+```
+
+
+### Summary
+
+According to the fitted model, receptive field offset changes significantly in all RGC types with distance from the soma. The pattern of change is different between most pairs of cell types.
+
+
+
+
+
+
+
+
+
+
+
+
+

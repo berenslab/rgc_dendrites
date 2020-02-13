@@ -1,0 +1,48 @@
+---
+title: "analysis_current_injection"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Load data
+
+```{r data}
+library("plyr")
+library("lsmeans")
+library("psych")
+library("data.table")
+
+data <- read.csv("../../data/processed/current_injection_updated.csv")
+data$group <- factor(data$group)
+
+data$group <- revalue(data$group, c("0"="toffa proximal", "1"="toffa distal", "2" = "minia proximal", "3"="minia distal"))
+
+```
+
+
+## Difference between slopes
+
+
+```{r interaction}
+
+m.interaction <- lm(DendriticCalcium_area ~ SomaticSpikes * group, data=data)
+anova(m.interaction)
+
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+```{r slope}
+m.interaction$coefficients
+m.lst <- lstrends(m.interaction, "group", var='SomaticSpikes')
+# slopes values
+summary(m.lst)
+
+# compare slopes
+pairs(m.lst)
+```
+
+

@@ -1,0 +1,254 @@
+---
+title: "Analysis for RGC Dendrite Project (Overlap of RFs)"
+author: "Philipp Berens"
+date: "July 31, 2019"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library('ggplot2')
+library("plyr")
+library("mgcv")
+library("hrbrthemes")
+library("ggthemes")
+library("itsadug")
+library("dplyr")
+library("xtable")
+```
+
+## Loading data
+
+
+```{r load data}
+
+data <- read.csv("../../data/processed/overlap.csv", header=TRUE)
+
+data <- plyr::rename(data, c("dendritic_distance_between_rois"="roi_dist"))
+
+data <- plyr::rename(data, c("cbpt_angle_between_rois_deg"="angle", "overlap_index"="overlap"))
+
+data <- dplyr::select(data, c("cell_id", "type", "roi_dist", "overlap", "angle"))
+
+data$type <- factor(data$type)
+data$type <- revalue(data$type, c("0"="alpha transient", "1"="sustained", "2" = "mini alpha", "3"="f-mini"))
+
+cm <- max(data$cell_id[data$type=="alpha transient"])
+data$cell_id[data$type=="sustained"] <- data$cell_id[data$type=="sustained"] + cm + 1
+cm <- max(data$cell_id[data$type=="sustained"])
+data$cell_id[data$type=="mini alpha"] <- data$cell_id[data$type=="mini alpha"] + cm + 1
+cm <- max(data$cell_id[data$type=="mini alpha"])
+data$cell_id[data$type=="f-mini"] <- data$cell_id[data$type=="f-mini"] + cm + 1
+
+# we filter the data to ROI pairs with distance <300 
+# so that all cells are compared on equal grounds
+data1 <- filter(data, data$roi_dist<300)
+
+# we use cell id as a random factor
+data1$cell_id = factor(data1$cell_id)
+
+```
+
+## Overlap index vs. dendritic distance
+
+Note that these first few plots here are mainly for getting an intuition about the data. Inferences from them should be drawn with care, since for each variable, I just average over all values of the other variable. For slices through the fitted model, see below. Also, I removed the SE bands, since they are not accurate as they do not take the repeated measures in individual cells into account.
+
+### All cell types individually 
+```{r oi_distance, fig.width=8, fig.height=4, echo=FALSE, fig.path='figures/', dev=c('png', 'pdf')}
+ggplot(data1, aes(x=roi_dist,y=overlap)) +
+  geom_point(alpha=.1, shape=16, size=.2) + 
+  #geom_smooth(method = "gam", formula = y  ~  s(x), se=FALSE) + 
+  facet_wrap(~type, ncol=4) + 
+  ylim(c(0,1)) + 
+  theme_minimal()+ 
+  xlab(expression(paste("Dendritic distance [", mu, "m] "))) + 
+  ylab("Overlap index")
+```
+
+## Overlap index vs. angular distance
+
+###All cell types individually 
+```{r oi_angle, fig.width=8, fig.height=4, echo=FALSE, fig.path='figures/', dev=c('png', 'pdf')}
+ggplot(data1, aes(x=angle,y=overlap)) +
+  geom_point(alpha=.1, shape=16, size=.2) +  
+  #geom_smooth(method = "gam", formula = y  ~  s(x), se=FALSE) + 
+  facet_wrap(~type, ncol=4) + 
+  ylim(c(0,1)) + 
+  xlim(c(0,180)) +
+  theme_minimal()+ 
+  xlab("Angular distance [deg]") + 
+  ylab("Overlap index")
+
+```
+
+
+## Overlap index vs. distance and angle
+
+### Gaussian GAM without random effects for cell id
+```{r}
+m1 <- gam(overlap ~ type + te(roi_dist, angle, by=type, k=10), data = data1)
+summary(m1)
+#gamtabs(m1, type="HTML")
+```
+
+
+### Gaussian GAM with random effects for cell id
+
+```{r}
+m2 <- gam(overlap ~ type + te(roi_dist, angle, by=type, k=20) +
+          s(cell_id, bs="re"), data = data1)
+summary(m2)
+
+```
+
+Model comparison between the two models using AIC:
+```{r}
+AIC(m1)
+AIC(m2)
+```
+
+
+
+Model comparison between the two models using ANOVA:
+
+```{r}
+anova(m1,m2, test="F")
+```
+
+Because the AIC is more negative for m2 and the ANOVA yields a significant difference between the two models, the random effects model is better. Next, we want to check whether the assumptions of the model on the noise are warranted (Gaussianity):
+
+```{r fig.width=4, fig.height=4}
+qq.gam(m2)
+```
+
+
+The shape of the QQ-plot suggests that we need an error distribution with more heavy tails, like a t-distribution.
+
+
+### Question of reviewer concerning independence of axis
+
+
+
+```{r}
+r2 <- gam(overlap ~ type + te(roi_dist, angle, by=type, k=10) +
+          s(cell_id, bs="re"), data = data1)
+summary(r2)
+
+```
+
+```{r}
+r1 <- gam(overlap ~ type + s(roi_dist, by=type, k=10) + s(roi_dist, by=type, k=10) +
+          s(cell_id, bs="re"), data = data1)
+summary(r1)
+
+```
+
+```{r}
+anova(r1,r2, test="F")
+
+```
+
+
+
+### T-distributed GAM with random effects for cell id
+
+We fit a model with the same structure as before just assuming t-distributed noise which has heavier tails.
+
+```{r}
+m3 <- bam(overlap ~ type + te(roi_dist, angle, by=type, k=20) + s(cell_id, bs="re"), 
+          data = data1, 
+          family=scat(min.df=5), 
+          discrete=TRUE)
+summary(m3)
+```
+
+```{r qq_t_gam, fig.width=4, fig.height=4, fig.path='figures/', dev=c('png', 'pdf')}
+qq.gam(m3)
+```
+
+Now, the model has better fitting residuals, and compared with Model 2 above also lower AIC:
+
+```{r}
+AIC(m3)
+```
+
+```{r}
+gam.check(m3)
+```
+
+
+## Model visualization and analysis of the differences
+
+### Nonlinear effects
+
+First we visualize the fitted surfaces:
+
+```{r oi_distance_angle, fig.width=10, fig.height=4, echo=FALSE, fig.path='figures/', dev=c('png', 'pdf')}
+par(mfrow=c(1,4), cex=1.1)
+
+types <- c("alpha transient", "mini alpha", "sustained", "f-mini")
+nT <- seq(1, length(types))
+
+
+for (t in nT){
+  fvisgam(m3, view=c("roi_dist", "angle"), 
+        cond=list(type=types[t]),
+        too.far=0.1, plot.type="contour", color="topo", 
+        main=types[t], zlim=c(0,1),
+        rm.ranef=TRUE, contour.col = 'black', print.summary = FALSE, n.grid = 60,
+        xlab = expression(paste("Dendritic distance [", mu, "m] ")),
+        ylab = "Angular distance (deg)")
+  
+}
+
+```
+### Significance analysis 
+
+Next, we can use the model to compute differences between the cell types and assess, where these are significantly different (assuming 99%-CIs). All white regions do not show significant differences.
+
+```{r oi_distance_angle_diffs, fig.width=14.5, fig.height=4, echo=FALSE, fig.path='figures/', dev=c('png', 'pdf')}
+
+par(mfrow=c(1,6))
+
+types <- c("alpha transient", "mini alpha", "sustained", "f-mini")
+nT <- seq(1, length(types))
+
+
+for (t in nT){
+  if (t<length(types)){
+    for (d in seq(t+1, length(types))){
+      plot_diff2(m3, view=c("roi_dist", "angle"), color="topo",
+          comp=list(type=c(types[t], types[d])),  
+          se=2, # 95 % CI
+          sim.ci = TRUE, 
+          show.diff = TRUE, alpha.diff = .75, col.diff = 'white', 
+          col='black',rm.ranef=TRUE, ci.col=c('gray45','gray80'), n.grid = 60,zlim=c(-1,1), 
+          print.summary = FALSE, hide.label = FALSE,
+          xlab = expression(paste("Dendritic distance [", mu, "m] ")),
+          ylab = "Angular distance (deg)",
+          main = paste(types[t],"vs",types[d]),
+          add.color.legend=FALSE,
+          xlim=c(0,300), ylim=c(0,180))
+      
+      
+    }
+  }
+}
+```
+
+### Summary
+
+The receptive field overlap is most obviously different between the transient alpha and all other RGC types. For large dendritic distances and large angular distances, the overlap of RFs goes down a lot for these cells. Interestingly, the mini alpha seems to follow this pattern somewhat, althoughnot as much. Both the sustained and the f-mini are very different, there RFs overlap everywhere almost completely.
+
+
+
+
+
+
+
+
+
+
+
