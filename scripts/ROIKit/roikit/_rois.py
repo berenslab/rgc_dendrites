@@ -19,7 +19,7 @@ class ROIs:
                 
         self.cell_id = cell_id
             
-        datapath_scans_all = datapath + 'data_scans_all.pickle'
+        datapath_scans_all = datapath + 'data_scans.pickle'
         with open(datapath_scans_all, 'rb') as f:
             data_scans_all = pickle.load(f)
             data_scans = data_scans_all[data_scans_all['cell_id'] == cell_id]

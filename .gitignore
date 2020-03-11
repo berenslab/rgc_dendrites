@@ -7,3 +7,5 @@
 # others
 
 *.egg-info/
+
+data/raw/*.pickle
