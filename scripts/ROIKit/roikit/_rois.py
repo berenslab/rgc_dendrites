@@ -85,7 +85,7 @@ class ROIs:
                 
         self.density_maps = m.density_maps
         
-    def compute_data_scan(self):
+    def compute_scan_matching(self):
         
         res = data_scans.apply(lambda x: get_matching_results(x, data_stack, data_paths, data_scans, linestack_xy), axis=1)
         data_scans = data_scans.assign(scan_center=res.apply(lambda x: x[0]),
@@ -94,7 +94,7 @@ class ROIs:
         
         self.data_scans = data_scans
             
-    def finetune_data_scan(self, roi_id, pad_more=0, offset=[0, 0], angle_adjust=0):
+    def finetune_scan_matching(self, roi_id, pad_more=0, offset=[0, 0], angle_adjust=0):
     
         res = self.data_scans.loc[[roi_id]].apply(lambda x: get_matching_results(x, self.data_stack, self.data_paths, self.data_scans, self.linestack_xy, pad_more=pad_more, offset=offset, angle_adjust=angle_adjust), axis=1)
         self.data_scans.loc[[roi_id]] = self.data_scans.assign(scan_center=res.apply(lambda x: x[0]),

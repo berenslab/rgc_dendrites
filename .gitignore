@@ -8,4 +8,5 @@
 
 *.egg-info/
 
+data/raw/*.h5
 data/raw/*.pickle
