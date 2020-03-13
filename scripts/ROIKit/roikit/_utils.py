@@ -7,6 +7,10 @@ from skimage.feature import match_template
 
 from shapely.geometry import Polygon
 
+from rfest import splineLG, build_design_matrix, get_spatial_and_temporal_filters
+import cv2
+import pandas as pd
+
 def get_scale_factor(rec_pixel_size, stack_pixel_sizes):
     
     return rec_pixel_size / stack_pixel_sizes[0]
@@ -376,3 +380,112 @@ def get_cntr_interception(roi_0_cntr, roi_1_cntr):
             inner_cntr_list_all.append(inner_cntr_list)
             
     return inner_cntr_list_all, np.mean(overlap_index_all)
+
+
+def znorm(data):
+    """
+    Normalizing raw trace.
+    """
+    return (data - data.mean())/data.std()
+
+def interpolate_weights(tracetime, traces_znorm, triggers):
+    
+    """
+    Align the stimulus time and triggertime, 
+    aka downsampling the raw trace to the same length as the stimulus.
+    """
+    
+    from scipy import interpolate
+    data_interp = interpolate.interp1d(
+        tracetime.flatten(), 
+        traces_znorm.flatten(),
+        kind = 'linear'
+    ) (triggers)
+    
+    return znorm(data_interp)
+
+def get_rf(*data, X, dims):
+    #     (rec_id, roi_id, tracetime, triggertime, traces_raw) = data
+    rec_id = data[0]
+    roi_id = data[1]
+    tracetime = data[2]
+    triggertime = data[3]
+    traces_raw = data[4]
+        
+    y = interpolate_weights(tracetime, 
+                                  znorm(traces_raw.flatten()), 
+                                  triggertime)
+
+
+    y = y[:1500]
+    y = np.gradient(y) # take the derivative of the calcium trace
+    X = X[:len(X), :]    
+    
+    spl = splineLG(X, y, dims=dims, df=7)
+    sRF, tRF = get_spatial_and_temporal_filters(spl.w_spl, dims)
+        
+    return [sRF, tRF, spl.w_spl]
+
+def upsample_rf(rf, rf_pixel_size, stack_pixel_size):
+    from skimage.transform import resize
+    scale_factor = rf_pixel_size/stack_pixel_size
+    output_shape = (np.array([15, 20]) * scale_factor).astype(int)
+    
+    return resize(rf, output_shape=output_shape, mode='constant')
+
+def rescale_data(data):
+    return (data - data.min()) / (data.max() - data.min())
+
+def get_contour(data, stack_pixel_size, 
+                rf_pixel_size=30):
+
+    data = rescale_data(data)
+    levels = np.arange(60, 75, 5)/100
+    
+    CS = plt.contour(data, levels=levels)
+    plt.clf()
+    plt.close()
+
+    res = 0
+    for i in range(len(levels)):
+
+        ps = CS.collections[i].get_paths()
+        
+        all_cntrs = [p.vertices for p in ps]
+
+        cntrs_size = [cv2.contourArea(cntr.astype(np.float32))*stack_pixel_size**2/1000 for cntr in all_cntrs]
+
+        # if i == 0:
+        #     res = pd.Series([all_cntrs, cntrs_size])
+        # else:
+        #     tmp = pd.Series([all_cntrs, cntrs_size])
+        #     res = res.append(tmp)
+        
+        good_cntrs = [cntr[:, ::-1] for cntr in all_cntrs if (cntr[0] == cntr[-1]).all() and cv2.contourArea(cntr.astype(np.float32))*stack_pixel_size**2/1000 > 2.5]
+        good_cntrs_size = [cv2.contourArea(cntr.astype(np.float32))*stack_pixel_size**2/1000 for cntr in good_cntrs]
+
+        if i == 0:
+            res = pd.Series([good_cntrs, good_cntrs_size])
+        else:
+            tmp = pd.Series([good_cntrs, good_cntrs_size])
+            res = res.append(tmp)
+
+    res.index = np.arange(len(levels) * 2)
+    return res
+
+
+def get_irregular_index(cnts):
+    irregular_index = []
+    
+    if len(cnts) == 0: return 1
+    
+    for j, cnt in enumerate(cnts):
+        hull = cv2.convexHull(cnt.astype(np.float32)).flatten().reshape(-1, 2)
+        hull = np.vstack([hull, hull[0]])
+        
+        RFarea = cv2.contourArea(cnt.astype(np.float32))
+        CHarea = cv2.contourArea(hull.astype(np.float32))
+
+        irregular_index.append((CHarea - RFarea) / CHarea)
+            
+    return np.max(irregular_index)
