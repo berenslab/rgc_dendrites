@@ -10,3 +10,5 @@
 
 data/raw/*.h5
 data/raw/*.pickle
+
+scripts/tmp.ipynb
