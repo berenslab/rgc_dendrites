@@ -211,97 +211,32 @@ class ROIs:
         
         
     def compute_rf(self, recompute=False):
+        raise NotImplementedError('This method needs to be updated.')        
         
-        if hasattr(self, 'data_rf') and recompute is False:
-            print('`data_rf` is already computed. To recompute, set `recompute=True`.')
+        # if hasattr(self, 'data_rf') and recompute is False:
+        #     print('`data_rf` is already computed. To recompute, set `recompute=True`.')
         
-        if recompute:
+        # if recompute:
         
-            noise_columns = ['rec_id', 'roi_id', 'Tracetimes0_noise',
-                           'Triggertimes_noise','Traces0_raw_noise']
+        #     noise_columns = ['rec_id', 'roi_id', 'Tracetimes0_noise',
+        #                    'Triggertimes_noise','Traces0_raw_noise']
 
-            stim = h5py.File('../data/raw/noise.h5', 'r')['k'][:].T
-            dims = [5, 20, 15]
-            X = build_design_matrix(stim, dims[0])
+        #     stim = h5py.File('../data/raw/noise.h5', 'r')['k'][:].T
+        #     dims = [5, 20, 15]
+        #     X = build_design_matrix(stim, dims[0])
 
-            data_rf = pd.DataFrame()
-            data_rf[['recording_id', 'roi_id']] = self.data_rawtraces[['rec_id', 'roi_id']]
-            rf_all =self.data_rawtraces[noise_columns].apply(lambda x: get_rf(*x, X=X, dims=dims), axis=1)
-            data_rf['RF'] = rf_all.apply(lambda x:x[2])
-            data_rf['sRF'] = rf_all.apply(lambda x:x[0])
-            data_rf['tRF'] = rf_all.apply(lambda x:x[1])
-            data_rf['RF_upsampled'] = data_rf['sRF'].apply(lambda x: upsample_rf(x, 30, self.data_stack['pixel_size'][0]))
+        #     data_rf = pd.DataFrame()
+        #     data_rf[['recording_id', 'roi_id']] = self.data_rawtraces[['rec_id', 'roi_id']]
+        #     rf_all =self.data_rawtraces[noise_columns].apply(lambda x: get_rf(*x, X=X, dims=dims), axis=1)
+        #     data_rf['RF'] = rf_all.apply(lambda x:x[2])
+        #     data_rf['sRF'] = rf_all.apply(lambda x:x[0])
+        #     data_rf['tRF'] = rf_all.apply(lambda x:x[1])
+        #     data_rf['RF_upsampled'] = data_rf['sRF'].apply(lambda x: upsample_rf(x, 30, self.data_stack['pixel_size'][0]))
 
-            self.data_rf = data_rf
+        #     self.data_rf = data_rf
     
     def compute_cntr(self, recompute=False):
-        raise NotImplementedError('This method needs to be updated.')
-        
-#         if hasattr(self, 'data_cntr') and recompute is False:
-#             print('`data_cntr` is already computed. To recompute, set `recompute=True`.')
-            
-#         if recompute:
-            
-#             import itertools
-
-#             data_cntr = pd.DataFrame()
-#             data_cntr[['recording_id', 'roi_id']] = self.data_rawtraces[['rec_id', 'roi_id']]
-
-#             # levels = np.linspace(0, 1, 41)[::2][10:-6]
-#             # levels = np.arange(0.6, 0.72, 0.025)
-#             levels = np.arange(60, 75, 5)/ 100
-#             labels = [['RF_cntr_upsampled_{0}'.format(int(lev * 100)), 'sRF_asd_upsampled_cntr_size_{0}'.format(int(lev * 100)) ] for lev in levels]
-#             labels = list(itertools.chain(*labels))
-
-#             data_cntr[labels] = self.data_rf['RF_upsampled'].apply(lambda x: get_contour(x, self.data_stack['pixel_size'][0], 30))   
-
-#             rfcenter =np.array([15,20]) * int(30) * 0.5
-#             padding = self.data_rois.recording_center.apply(
-#                 lambda x: (rfcenter-np.array(x) * self.data_stack['pixel_size'][0]).astype(int)
-#             )
-            
-
-#             for lev in np.arange(60, 75, 5):
-
-#                 data_cntr['cntr_irregularity_{}'.format(lev)] = data_cntr['RF_cntr_upsampled_{}'.format(lev)].apply(lambda x: get_irregular_index(x))
-#                 data_cntr['cntr_counts_{}'.format(lev)] = data_cntr['RF_cntr_upsampled_{}'.format(lev)].apply(lambda x: len(x))
-#                 data_cntr['cntr_quality_{}'.format(lev)] = np.logical_and(data_cntr['cntr_counts_{}'.format(lev)] < 2, 
-#                                                                         data_cntr['cntr_irregularity_{}'.format(lev)] < 0.1)
-
-#                 res = []
-#                 for j, roi_contours in enumerate(data_cntr['RF_cntr_upsampled_{}'.format(lev)]):
-#                     res.append([x * self.data_stack['pixel_size'][0] - padding[j] for x in roi_contours]) 
-#                 data_cntr['RF_cntr_tree_upsampled_{}'.format(lev)] = pd.Series(res) 
-
-#                 quality = data_cntr['cntr_quality_{}'.format(lev)].copy()
-#                 all_cntrs = data_cntr['RF_cntr_tree_upsampled_{}'.format(lev)][quality]
-#                 all_cntrs_center = all_cntrs.apply(lambda x: [np.mean(y,0) for y in x][0])
-#                 rois_pos = np.vstack(self.data_rois.roi_pos)[:, :2][quality]
-#                 rois_offsets = np.vstack(all_cntrs_center) - rois_pos
-#                 rois_offset = rois_offsets.mean(0)
-#                 cntrs_calibrate_to_rois = all_cntrs.apply(lambda x: [y - rois_offset for y in x])
-
-#                 data_cntr['RF_cntr_calibrated_{}'.format(lev)] = cntrs_calibrate_to_rois
-
-#                 data_cntr['cntrs_offset_{}'.format(lev)] = data_cntr['RF_cntr_calibrated_{}'.format(lev)][data_cntr['RF_cntr_calibrated_{}'.format(lev)].notnull()].apply(lambda x: np.array([y.mean(0) for y in x])) - self.data_rois.roi_pos.apply(lambda x:x[:2])
-#                 data_cntr['distance_from_RF_center_to_soma_{}'.format(lev)] = data_cntr['RF_cntr_tree_upsampled_{}'.format(lev)][data_cntr['RF_cntr_tree_upsampled_{}'.format(lev)].notnull()].apply(lambda x: np.mean([np.sqrt(np.sum((y.mean(0) - self.soma[:2])**2)) for y in x]))
-#                 data_cntr['distance_from_RF_center_to_ROI_{}'.format(lev)] = data_cntr['cntrs_offset_{}'.format(lev)][data_cntr['cntrs_offset_{}'.format(lev)].notnull()].apply(lambda x: np.mean([np.sqrt(np.sum(y**2)) for y in x]))    
-
-
-
-#             data_cntr['RF_cntr_upsampled'] = data_cntr['RF_cntr_upsampled_65'] 
-#             data_cntr['cntrs_offset_'] = data_cntr['cntrs_offset_65'] 
-#             data_cntr['distance_from_RF_center_to_soma'] = data_cntr['distance_from_RF_center_to_soma_65'] 
-#             data_cntr['distance_from_RF_center_to_ROI'] = data_cntr['distance_from_RF_center_to_ROI_65'] 
-
-#             data_cntr['cntr_quality'] = data_cntr[[
-#                                   'cntr_quality_60', 
-#                                   'cntr_quality_65', 
-#                                   'cntr_quality_70'
-#                                   ]].all(1)     
-
-#             self.data_cntr = data_cntr
-        
+        raise NotImplementedError('This method needs to be updated.')        
 
     def compute_pairwise(self):
         
